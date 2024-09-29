@@ -1,0 +1,18 @@
+[package]
+name = "crc32c-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["SF-Zhou <sfzhou.scut@gmail.com>"]
+homepage = "https://github.com/SF-Zhou/crc32c-cli"
+repository = "https://github.com/SF-Zhou/crc32c-cli"
+description = "A simple CLI wrapper for the [crc32c](https://crates.io/crates/crc32c) crate."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+crc32c = "0"
+
+[[bin]]
+name = "crc32c"
+path = "src/main.rs"
