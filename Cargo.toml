@@ -1,6 +1,6 @@
 [package]
 name = "crc32c-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["SF-Zhou <sfzhou.scut@gmail.com>"]
 homepage = "https://github.com/SF-Zhou/crc32c-cli"
@@ -12,6 +12,8 @@ license = "MIT OR Apache-2.0"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 crc32c = "0"
+scoped_threadpool = "0"
+thread_local = "1"
 
 [[bin]]
 name = "crc32c"
