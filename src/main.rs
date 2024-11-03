@@ -4,7 +4,7 @@ use clap::Parser;
 use scoped_threadpool::Pool;
 use std::cell::RefCell;
 use std::fs::{self, File};
-use std::os::unix::fs::FileExt;
+use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug, Clone)]
@@ -16,6 +16,10 @@ struct Args {
     /// number of threads.
     #[arg(short, long, default_value_t = 1)]
     threads: u32,
+
+    /// fill zero when the read length is less than expected.
+    #[arg(long, default_value_t = false)]
+    fill_zero: bool,
 }
 
 const BLOCK_SIZE: usize = 16 << 20; // 16MiB.
@@ -24,9 +28,13 @@ thread_local! {
     static TLS: RefCell<AlignedBytes> = RefCell::new(AlignedBytes::new_zeroed(BLOCK_SIZE, ALIGN_SIZE));
 }
 
-fn parallel_read(file: &File, path: &Path, pool: &mut Pool) -> Result<u32> {
+fn parallel_read(file: &File, path: &Path, pool: &mut Pool, fill_zero: bool) -> Result<u32> {
     let mut start = 0u64;
     let mut crc32c = 0u32;
+    let file_size = file
+        .metadata()
+        .with_context(|| format!("get file metadata failed: {}", path.display()))?
+        .size();
     loop {
         let mut vec: Vec<Result<(u64, u32, bool)>> = vec![];
         vec.resize_with(pool.thread_count() as usize, || Ok((0, 0, true)));
@@ -37,9 +45,17 @@ fn parallel_read(file: &File, path: &Path, pool: &mut Pool) -> Result<u32> {
                     let offset = start + (i * BLOCK_SIZE) as u64;
                     *r = TLS.with(|v| -> Result<(u64, u32, bool)> {
                         let mut buf = v.borrow_mut();
-                        let n = file.read_at(&mut buf, offset).with_context(|| {
+                        let mut n = file.read_at(&mut buf, offset).with_context(|| {
                             format!("read source file failed: {}", path.display())
                         })?;
+                        if fill_zero && offset < file_size {
+                            let expect =
+                                std::cmp::min(file_size - offset, BLOCK_SIZE as u64) as usize;
+                            if n < expect {
+                                buf[n..expect].fill(0);
+                                n = expect;
+                            }
+                        }
                         let crc32c = crc32c::crc32c(&buf[..n]);
                         Ok((n as u64, crc32c, n != BLOCK_SIZE))
                     });
@@ -89,7 +105,7 @@ fn main() -> Result<()> {
 
     for path in &args.paths {
         let file = open(path).with_context(|| format!("Failed to open file {}", path.display()))?;
-        let crc32c = parallel_read(&file, path, &mut pool)?;
+        let crc32c = parallel_read(&file, path, &mut pool, args.fill_zero)?;
         println!("{:08X} {}", crc32c, path.display());
     }
 
