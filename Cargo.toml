@@ -1,6 +1,6 @@
 [package]
 name = "crc32c-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["SF-Zhou <sfzhou.scut@gmail.com>"]
 homepage = "https://github.com/SF-Zhou/crc32c-cli"
@@ -9,9 +9,11 @@ description = "A simple CLI wrapper for the [crc32c](https://crates.io/crates/cr
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+aligned-utils = { version = "1", features = ["alloc"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 crc32c = "0"
+libc = "0"
 scoped_threadpool = "0"
 thread_local = "1"
 

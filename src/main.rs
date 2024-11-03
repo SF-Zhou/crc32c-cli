@@ -1,3 +1,4 @@
+use aligned_utils::bytes::AlignedBytes;
 use anyhow::{Context, Result};
 use clap::Parser;
 use scoped_threadpool::Pool;
@@ -17,9 +18,10 @@ struct Args {
     threads: u32,
 }
 
-const BLOCK_SIZE: u64 = 16 << 20; // 16MiB.
+const BLOCK_SIZE: usize = 16 << 20; // 16MiB.
+const ALIGN_SIZE: usize = 512;
 thread_local! {
-    static TLS: RefCell<Vec<u8>> = RefCell::new(vec![0; BLOCK_SIZE as _]);
+    static TLS: RefCell<AlignedBytes> = RefCell::new(AlignedBytes::new_zeroed(BLOCK_SIZE, ALIGN_SIZE));
 }
 
 fn parallel_read(file: &File, path: &Path, pool: &mut Pool) -> Result<u32> {
@@ -32,14 +34,14 @@ fn parallel_read(file: &File, path: &Path, pool: &mut Pool) -> Result<u32> {
         pool.scoped(|scoped| {
             for (i, r) in vec.iter_mut().enumerate() {
                 scoped.execute(move || {
-                    let offset = start + i as u64 * BLOCK_SIZE;
+                    let offset = start + (i * BLOCK_SIZE) as u64;
                     *r = TLS.with(|v| -> Result<(u64, u32, bool)> {
                         let mut buf = v.borrow_mut();
                         let n = file.read_at(&mut buf, offset).with_context(|| {
                             format!("read source file failed: {}", path.display())
                         })?;
                         let crc32c = crc32c::crc32c(&buf[..n]);
-                        Ok((n as u64, crc32c, n as u64 != BLOCK_SIZE))
+                        Ok((n as u64, crc32c, n != BLOCK_SIZE))
                     });
                 });
             }
@@ -68,13 +70,25 @@ fn parallel_read(file: &File, path: &Path, pool: &mut Pool) -> Result<u32> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn open(path: &Path) -> std::io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECT)
+        .open(path)
+}
+#[cfg(not(target_os = "linux"))]
+fn open(path: &Path) -> std::io::Result<fs::File> {
+    fs::File::open(path)
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let mut pool = Pool::new(args.threads);
 
     for path in &args.paths {
-        let file = fs::File::open(path)
-            .with_context(|| format!("Failed to open file {}", path.display()))?;
+        let file = open(path).with_context(|| format!("Failed to open file {}", path.display()))?;
         let crc32c = parallel_read(&file, path, &mut pool)?;
         println!("{:08X} {}", crc32c, path.display());
     }
